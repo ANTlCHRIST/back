@@ -5,8 +5,33 @@ let io = null;
 let access_token = "";
 let device_id = "";
 let currentTrack = [];
+const trackQueue = {};
 let clerkSockets = {};
 let guestSockets = {};
+let timeoutRef;
+
+const voteTrack = async (user_id, trackId, isOk) => {
+  if (trackQueue.hasOwnProperty(trackId)) {
+    // Check if the user_id has already voted on the track
+    const upvotes = trackQueue[trackId][1];
+    const downvotes = trackQueue[trackId][2];
+    
+    if (!upvotes.includes(user_id) && !downvotes.includes(user_id)) {
+      // If the user hasn't voted, add the user_id to the appropriate array
+      if (isOk) {
+        upvotes.push(user_id);
+        io.emit("addqueue", trackQueue);
+        return "upvote success";
+      } else {
+        downvotes.push(user_id);
+        io.emit("addqueue", trackQueue);
+        return "downvote success";
+      }
+    }
+    return "already voted";
+  }
+};
+
 
 //if theres a success transaction, this will be called
 const emitTransaction = (transaction_id) => {
@@ -53,10 +78,14 @@ const setAccessToken = (token) => {
 //this will be called if clerk is login spotify
 const setDeviceId = (token) => {
   device_id = token;
+
+  clearTimeout(timeoutRef); // Clear any existing timeout
+  timeoutRef = setTimeout(() => getCurrentTrack(io), 2000); // Set the timeout again
 };
 
 const clearCurrentTrack = () => {
   currentTrack = [];
+  io.emit("spotifyStatus", 401);
 };
 
 //this will be called sometime by its own interval
@@ -98,10 +127,10 @@ const getCurrentTrack = async (io) => {
     // Emit current track information to all sockets
     io.emit("current", currentTrack);
 
-    setTimeout(() => getCurrentTrack(io), intervalTime);
+    timeoutRef = setTimeout(() => getCurrentTrack(io), intervalTime); // Update the timeout reference
   } catch (error) {
     console.error("Error fetching currently playing track:", error);
-    setTimeout(() => getCurrentTrack(io), 10000); // Retry after 10 seconds on error
+    timeoutRef = setTimeout(() => getCurrentTrack(io), 10000); // Retry after 10 seconds on error
   }
 };
 
@@ -114,14 +143,60 @@ const emitCurrentTrack = async (io) => {
   }
 };
 
+const playVotedTrack = async (trackId) => {
+    console.log(trackId);
+    console.log(device_id);
+    const socketId = socket.id;
+
+    try {
+      await axios.post(
+        `https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A${trackId}&device_id=${device_id}`,
+        null, // No data to send in the request body
+        {
+          headers: {
+            Authorization: `Bearer ${access_token}`,
+          },
+        },
+      );
+
+      // Assuming you want to inform the client that the track was added successfully
+      io.to(socketId).emit("trackadded", { success: true });
+    } catch (error) {
+      console.error("Error adding track to queue:", error);
+      // Emit an error event to inform the client about the failure
+      io.to(socketId).emit("tracknotadded", {
+        success: false,
+        error: error.message,
+      });
+    }
+
+    if (currentTrack.length > 0) return;
+
+    try {
+      await axios.put(
+        `https://api.spotify.com/v1/me/player/play`,
+        null, // No data to send in the request body
+        {
+          headers: {
+            Authorization: `Bearer ${access_token}`,
+          },
+        },
+      );
+    } catch (error) {
+      console.error("Error resuming queue:", error);
+    }
+};
+
 module.exports = (socketIo) => {
   io = socketIo; // Assign the passed socketIo to the io variable
+  
   io.on("connection", (socket) => {
     io.emit("current", currentTrack);
     console.log("A user connected");
-
+    io.emit("addqueue", trackQueue);
     socket.on("disconnect", () => {
       console.log("User disconnected");
+
       // Remove the user_id association on disconnect
       Object.keys(clerkSockets).forEach((user_id) => {
         if (clerkSockets[user_id] === socket.id) {
@@ -173,16 +248,14 @@ module.exports = (socketIo) => {
       }
     });
 
-    //will be called if user request a song
     socket.on("addtrack", async (trackId) => {
       console.log(trackId);
       console.log(device_id);
       const socketId = socket.id;
-
+    
       try {
-        await axios.post(
-          `https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A${trackId}&device_id=${device_id}`,
-          null, // No data to send in the request body
+        const track = await axios.get(
+          `https://api.spotify.com/v1/tracks/${trackId}`,
           {
             headers: {
               Authorization: `Bearer ${access_token}`,
@@ -190,31 +263,12 @@ module.exports = (socketIo) => {
           },
         );
 
-        // Assuming you want to inform the client that the track was added successfully
-        io.to(socketId).emit("trackadded", { success: true });
+        if (!trackQueue.hasOwnProperty(trackId)) {
+          trackQueue[trackId] = [track.data, [], []]; // Save track data in index 0
+          io.emit("addqueue", trackQueue); // Emit the updated trackQueue to all sockets
+        }
       } catch (error) {
         console.error("Error adding track to queue:", error);
-        // Emit an error event to inform the client about the failure
-        io.to(socketId).emit("tracknotadded", {
-          success: false,
-          error: error.message,
-        });
-      }
-
-      if (currentTrack.length > 0) return;
-
-      try {
-        await axios.put(
-          `https://api.spotify.com/v1/me/player/play`,
-          null, // No data to send in the request body
-          {
-            headers: {
-              Authorization: `Bearer ${access_token}`,
-            },
-          },
-        );
-      } catch (error) {
-        console.error("Error resuming queue:", error);
       }
     });
 
@@ -227,6 +281,7 @@ module.exports = (socketIo) => {
 };
 
 // module.exports.clerkSockets = clerkSockets;
+module.exports.voteTrack = voteTrack;
 module.exports.signClerk = signClerk;
 module.exports.signGuest = signGuest;
 module.exports.setAccessToken = setAccessToken;

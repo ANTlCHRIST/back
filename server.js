@@ -35,7 +35,7 @@ const PORT = process.env.PORT;
 const server = http.createServer(app);
 const io = socketIO(server, {
   cors: {
-    origin: "https://7rhqk8-3000.csb.app",
+    origin: "https://wcwxocv.localto.net",
   },
 });
 

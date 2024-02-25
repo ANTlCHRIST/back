@@ -48,17 +48,16 @@ authRouter.get("/callback", async (req, res) => {
     setInterval(refreshToken, 1000 * 60 * 60); // 1 hour interval
 
     // Redirect the user back to the frontend with the tokens
-    res.redirect(`https://7rhqk8-3000.csb.app/`);
+    res.redirect(`https://wcwxocv.localto.net/`);
   } catch (error) {
     console.error("Error during authorization:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
+//its for checking if theres a device or not that this backend take hold
 authRouter.get("/check", auth(["clerk"]), async (req, res) => {
   try {
-    console.log("check");
-
     const validationResponse = await axios.get(
       "https://api.spotify.com/v1/me/player/devices",
       {
@@ -180,5 +179,17 @@ async function refreshToken() {
     console.error("Error refreshing token:", error);
   }
 }
+
+authRouter.post("/vote", auth(["guest"]), async (req, res) => {
+  try {
+    const {trackId, isOk} = req.body;
+    const votion = await socketController.voteTrack(req.ses.user_id, trackId, isOk);
+    console.log(votion);
+    res.json({ message: votion });
+  } catch (error) {
+    // console.error("Error during token validation:", error);
+    res.status(401).json({ error: "Internal server error" });
+  }
+});
 
 module.exports = authRouter;
