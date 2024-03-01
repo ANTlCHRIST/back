@@ -9,14 +9,45 @@ const trackQueue = {};
 let clerkSockets = {};
 let guestSockets = {};
 let timeoutRef;
+const findNextTrack = (trackId) => {
+  delete trackQueue[trackId];
+  // Recursively call the function to get the next track
+  return getFirstTrackWithLogic();
+}
+
+const getFirstTrackWithLogic = () => {
+  // Iterate over the keys (track IDs) in the trackQueue object
+  for (const trackId in trackQueue) {
+    if (trackQueue.hasOwnProperty(trackId)) {
+      const upvotes = trackQueue[trackId][1];
+      const downvotes = trackQueue[trackId][2];
+      
+      // If the number of downvotes is greater than or equal to upvotes, skip this track
+      if (downvotes.length >= upvotes.length) {
+        // Remove the track from the queue
+        delete trackQueue[trackId];
+        // Recursively call the function to get the next track
+        return getFirstTrackWithLogic();
+      }
+      
+      // Otherwise, select the track
+      return trackId;
+    }
+  }
+  
+  // Return null if no track is found
+  return null;
+};
 
 const voteTrack = async (user_id, trackId, isOk) => {
+  console.log("log voting");
   if (trackQueue.hasOwnProperty(trackId)) {
     // Check if the user_id has already voted on the track
     const upvotes = trackQueue[trackId][1];
     const downvotes = trackQueue[trackId][2];
     
     if (!upvotes.includes(user_id) && !downvotes.includes(user_id)) {
+      console.log("voting");
       // If the user hasn't voted, add the user_id to the appropriate array
       if (isOk) {
         upvotes.push(user_id);
@@ -143,14 +174,15 @@ const emitCurrentTrack = async (io) => {
   }
 };
 
-const playVotedTrack = async (trackId) => {
+const playVotedTrack = async () => {
+    const getvoteTrack = await getFirstTrackWithLogic() ;
     console.log(trackId);
     console.log(device_id);
     const socketId = socket.id;
 
     try {
       await axios.post(
-        `https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A${trackId}&device_id=${device_id}`,
+        `https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A${getvoteTrack}&device_id=${device_id}`,
         null, // No data to send in the request body
         {
           headers: {
