@@ -180,6 +180,18 @@ async function refreshToken() {
   }
 }
 
+authRouter.post("/add", auth(["guest"]), async (req, res) => {
+  try {
+    const { trackId } = req.body;
+    const res = await socketController.addTrack(req.ses.user_id, trackId);
+
+    res.json({ message: res });
+  } catch (error) {
+    // console.error("Error during token validation:", error);
+    res.status(401).json({ error: "Internal server error" });
+  }
+});
+
 authRouter.post("/vote", auth(["guest"]), async (req, res) => {
   try {
     const {trackId, isOk} = req.body;

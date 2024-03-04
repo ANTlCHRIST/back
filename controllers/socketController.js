@@ -9,6 +9,7 @@ const trackQueue = {};
 let clerkSockets = {};
 let guestSockets = {};
 let timeoutRef;
+
 const findNextTrack = (trackId) => {
   delete trackQueue[trackId];
   // Recursively call the function to get the next track
@@ -31,12 +32,36 @@ const getFirstTrackWithLogic = () => {
       }
       
       // Otherwise, select the track
+      delete trackQueue[trackId];
       return trackId;
     }
   }
   
   // Return null if no track is found
   return null;
+};
+
+const addTrack = async (user_id, trackId) => {
+  console.log(trackId);
+  console.log(device_id);
+
+  try {
+    const track = await axios.get(
+      `https://api.spotify.com/v1/tracks/${trackId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
+      },
+    );
+
+    if (!trackQueue.hasOwnProperty(trackId)) {
+      trackQueue[trackId] = [track.data, [user_id], []]; // Save track data in index 0
+      io.emit("addqueue", trackQueue); // Emit the updated trackQueue to all sockets
+    }
+  } catch (error) {
+    console.error("Error adding track to queue:", error);
+  }
 };
 
 const voteTrack = async (user_id, trackId, isOk) => {
@@ -158,10 +183,12 @@ const getCurrentTrack = async (io) => {
     // Emit current track information to all sockets
     io.emit("current", currentTrack);
 
-    timeoutRef = setTimeout(() => getCurrentTrack(io), intervalTime); // Update the timeout reference
+    timeoutRef = setTimeout(() => getCurrentTrack(io), intervalTime);
+    timeoutRef = setTimeout(() => playVotedTrack(), intervalTime - 5000); // Update the timeout reference
   } catch (error) {
     console.error("Error fetching currently playing track:", error);
     timeoutRef = setTimeout(() => getCurrentTrack(io), 10000); // Retry after 10 seconds on error
+    timeoutRef = setTimeout(() => playVotedTrack(), 10000);
   }
 };
 
@@ -176,9 +203,6 @@ const emitCurrentTrack = async (io) => {
 
 const playVotedTrack = async () => {
     const getvoteTrack = await getFirstTrackWithLogic() ;
-    console.log(trackId);
-    console.log(device_id);
-    const socketId = socket.id;
 
     try {
       await axios.post(
@@ -191,15 +215,8 @@ const playVotedTrack = async () => {
         },
       );
 
-      // Assuming you want to inform the client that the track was added successfully
-      io.to(socketId).emit("trackadded", { success: true });
     } catch (error) {
       console.error("Error adding track to queue:", error);
-      // Emit an error event to inform the client about the failure
-      io.to(socketId).emit("tracknotadded", {
-        success: false,
-        error: error.message,
-      });
     }
 
     if (currentTrack.length > 0) return;
@@ -280,30 +297,6 @@ module.exports = (socketIo) => {
       }
     });
 
-    socket.on("addtrack", async (trackId) => {
-      console.log(trackId);
-      console.log(device_id);
-      const socketId = socket.id;
-    
-      try {
-        const track = await axios.get(
-          `https://api.spotify.com/v1/tracks/${trackId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${access_token}`,
-            },
-          },
-        );
-
-        if (!trackQueue.hasOwnProperty(trackId)) {
-          trackQueue[trackId] = [track.data, [], []]; // Save track data in index 0
-          io.emit("addqueue", trackQueue); // Emit the updated trackQueue to all sockets
-        }
-      } catch (error) {
-        console.error("Error adding track to queue:", error);
-      }
-    });
-
     //called on user login
     emitCurrentTrack(io);
   });
@@ -313,6 +306,7 @@ module.exports = (socketIo) => {
 };
 
 // module.exports.clerkSockets = clerkSockets;
+module.exports.addTrack = addTrack;
 module.exports.voteTrack = voteTrack;
 module.exports.signClerk = signClerk;
 module.exports.signGuest = signGuest;
